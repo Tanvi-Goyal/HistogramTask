@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">HistogramTask</string>
+    <string name="ok">ok</string>
+    <string name="sample_image">Sample image</string>
+</resources>
