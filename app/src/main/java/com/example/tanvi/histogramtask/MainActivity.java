@@ -3,9 +3,12 @@ package com.example.tanvi.histogramtask;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ContentResolver;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.provider.MediaStore;
@@ -17,10 +20,13 @@ import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
+import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 
 import org.opencv.android.OpenCVLoader;
+
+import java.io.File;
 
 import butterknife.Bind;
 import butterknife.ButterKnife;
@@ -35,6 +41,8 @@ public class MainActivity extends BaseActivity {
     LinearLayout root;
 
     Integer REQUEST_CAMERA = 1 , SELECT_FILE = 0;
+    private Bundle bundle;
+
 
     static {
         if (OpenCVLoader.initDebug()) {
@@ -129,12 +137,64 @@ public class MainActivity extends BaseActivity {
                 final Bitmap bmp = (Bitmap) bundle.get("data");
                 sampleImage.setImageBitmap(bmp);
 
+                Uri tempUri = getImageUri(getApplicationContext(), bmp);
+
+                // CALL THIS METHOD TO GET THE ACTUAL PATH
+                File finalFile = new File(getRealPathFromURI(tempUri));
+
+                show(tempUri);
+
             }else if(requestCode == SELECT_FILE){
 
                 Uri selectImg = data.getData();
                 sampleImage.setImageURI(selectImg);
+
+                show(selectImg);
             }
         }
+    }
+
+    public String getRealPathFromURI(Uri uri) {
+        String path = "";
+        if (getContentResolver() != null) {
+            Cursor cursor = getContentResolver().query(uri, null, null, null, null);
+            if (cursor != null) {
+                cursor.moveToFirst();
+                int idx = cursor.getColumnIndex(MediaStore.Images.ImageColumns.DATA);
+                path = cursor.getString(idx);
+                cursor.close();
+            }
+        }
+        return path;
+    }
+
+    public Uri getImageUri(Context inContext, Bitmap inImage) {
+        Bitmap OutImage = Bitmap.createScaledBitmap(inImage, 1000, 1000,true);
+        String path = MediaStore.Images.Media.insertImage(inContext.getContentResolver(), OutImage, "Title", null);
+        return Uri.parse(path);
+    }
+
+
+    private void show(final Uri uri) {
+
+        final Button button = findViewById(R.id.show_histogram);
+        button.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+
+
+                Uri uril = Uri.parse(ContentResolver.SCHEME_ANDROID_RESOURCE + "://" +
+                        getResources().getResourcePackageName(R.drawable.ic_android_black_24dp) + '/' +
+                        getResources().getResourceTypeName(R.drawable.ic_android_black_24dp) + '/' +
+                        getResources().getResourceEntryName(R.drawable.ic_android_black_24dp) );
+
+                bundle = new Bundle();
+                bundle.putParcelable(KEY_BITMAP, uril);
+                Intent intent = new Intent(MainActivity.this , HistogramActivity.class);
+                intent.putExtras(bundle);
+                startActivity(intent );
+            }
+        });
     }
 
 }
