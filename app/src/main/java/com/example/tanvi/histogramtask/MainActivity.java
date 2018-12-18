@@ -10,23 +10,39 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.provider.MediaStore;
 import android.support.annotation.NonNull;
 import android.support.design.widget.Snackbar;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
-import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
+import android.util.SparseArray;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 
 import org.opencv.android.OpenCVLoader;
+import org.opencv.android.Utils;
+import org.opencv.core.Core;
+import org.opencv.core.Mat;
+import org.opencv.core.MatOfFloat;
+import org.opencv.core.MatOfInt;
+import org.opencv.core.Point;
+import org.opencv.core.Scalar;
+import org.opencv.core.Size;
+import org.opencv.imgproc.Imgproc;
 
-import java.io.File;
+import java.io.BufferedInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
+import java.net.URLConnection;
+import java.util.ArrayList;
+import java.util.Collections;
 
 import butterknife.Bind;
 import butterknife.ButterKnife;
@@ -37,10 +53,20 @@ public class MainActivity extends BaseActivity {
     @Bind(R.id.image)
     ImageView sampleImage;
 
+    @Bind(R.id.image_show)
+    ImageView histogram_image;
+
     @Bind(R.id.root)
     LinearLayout root;
 
+    @Bind(R.id.view_details)
+    Button view;
+
+
     Integer REQUEST_CAMERA = 1 , SELECT_FILE = 0;
+
+    String sum , sum_of_all , average ;
+
     private Bundle bundle;
 
 
@@ -137,64 +163,105 @@ public class MainActivity extends BaseActivity {
                 final Bitmap bmp = (Bitmap) bundle.get("data");
                 sampleImage.setImageBitmap(bmp);
 
-                Uri tempUri = getImageUri(getApplicationContext(), bmp);
-
-                // CALL THIS METHOD TO GET THE ACTUAL PATH
-                File finalFile = new File(getRealPathFromURI(tempUri));
-
-                show(tempUri);
+                draw(bmp);
 
             }else if(requestCode == SELECT_FILE){
 
+                Bitmap bitmap = null;
                 Uri selectImg = data.getData();
                 sampleImage.setImageURI(selectImg);
 
-                show(selectImg);
+                try {
+                     bitmap = MediaStore.Images.Media.getBitmap(this.getContentResolver(), selectImg);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+
+                draw(bitmap);
             }
         }
     }
 
-    public String getRealPathFromURI(Uri uri) {
-        String path = "";
-        if (getContentResolver() != null) {
-            Cursor cursor = getContentResolver().query(uri, null, null, null, null);
-            if (cursor != null) {
-                cursor.moveToFirst();
-                int idx = cursor.getColumnIndex(MediaStore.Images.ImageColumns.DATA);
-                path = cursor.getString(idx);
-                cursor.close();
-            }
-        }
-        return path;
-    }
 
-    public Uri getImageUri(Context inContext, Bitmap inImage) {
-        Bitmap OutImage = Bitmap.createScaledBitmap(inImage, 1000, 1000,true);
-        String path = MediaStore.Images.Media.insertImage(inContext.getContentResolver(), OutImage, "Title", null);
-        return Uri.parse(path);
-    }
-
-
-    private void show(final Uri uri) {
+    private void draw(final Bitmap bmp) {
 
         final Button button = findViewById(R.id.show_histogram);
         button.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                Mat rgba = new Mat();
+                Utils.bitmapToMat(bmp, rgba);
+
+                // Get the bitmap size.
+                Size rgbaSize = rgba.size();
 
 
-                Uri uril = Uri.parse(ContentResolver.SCHEME_ANDROID_RESOURCE + "://" +
-                        getResources().getResourcePackageName(R.drawable.ic_android_black_24dp) + '/' +
-                        getResources().getResourceTypeName(R.drawable.ic_android_black_24dp) + '/' +
-                        getResources().getResourceEntryName(R.drawable.ic_android_black_24dp) );
+                // Set the amount of bars in the histogram.
+                int histSize = 256;
+                MatOfInt histogramSize = new MatOfInt(histSize);
 
-                bundle = new Bundle();
-                bundle.putParcelable(KEY_BITMAP, uril);
-                Intent intent = new Intent(MainActivity.this , HistogramActivity.class);
-                intent.putExtras(bundle);
-                startActivity(intent );
+            // Set the height of the histogram and width of the bar.
+                int histogramHeight = (int) rgbaSize.height;
+                int binWidth = 5;
+
+            // Set the value range.
+                MatOfFloat histogramRange = new MatOfFloat(0f, 256f);
+
+            // Create two separate lists: one for colors and one for channels (these will be used as separate datasets).
+                Scalar[] colorsRgb = new Scalar[]{new Scalar(200, 0, 0, 255), new Scalar(0, 200, 0, 255), new Scalar(0, 0, 200, 255)};
+                MatOfInt[] channels = new MatOfInt[]{new MatOfInt(0), new MatOfInt(1), new MatOfInt(2)};
+
+            // Create an array to be saved in the histogram and a second array, on which the histogram chart will be drawn.
+                Mat[] histograms = new Mat[]{new Mat(), new Mat(), new Mat()};
+                Mat histMatBitmap = new Mat(rgbaSize, rgba.type());
+
+
+                for (int i = 0; i < channels.length; i++) {
+                    Imgproc.calcHist(Collections.singletonList(rgba), channels[i], new Mat(), histograms[i], histogramSize, histogramRange);
+                    Core.normalize(histograms[i], histograms[i], histogramHeight, 0, Core.NORM_INF);
+                    for (int j = 0; j < histSize; j++) {
+                        Point p1 = new Point(binWidth * (j - 1), histogramHeight - Math.round(histograms[i].get(j - 1, 0)[0]));
+                        Point p2 = new Point(binWidth * j, histogramHeight - Math.round(histograms[i].get(j, 0)[0]));
+                        Imgproc.line(histMatBitmap, p1, p2, colorsRgb[i], 2, 8, 0);
+                    }
+                }
+
+                for (int i = 0; i < histograms.length; i++) {
+                    calculationsOnHistogram(histograms[i]);
+                }
+
+                Bitmap histBitmap = Bitmap.createBitmap(histMatBitmap.cols(), histMatBitmap.rows(), Bitmap.Config.ARGB_8888);
+                Utils.matToBitmap(histMatBitmap, histBitmap);
+                BitmapHelper.showBitmap(MainActivity.this, histBitmap, histogram_image);
+
             }
         });
     }
 
+    private void calculationsOnHistogram(Mat histogram) {
+        SparseArray<ArrayList<Float>> compartments = HistogramHelper.createCompartments(histogram);
+        float sumAll = HistogramHelper.sumCompartmentsValues(compartments);
+        float averageAll = HistogramHelper.averageValueOfCompartments(compartments);
+
+        sum = String.valueOf(Core.sumElems(histogram));
+        sum_of_all = String.valueOf(sumAll);
+        average = String.valueOf(averageAll);
+
+    }
+
+
+    public void ViewDetails(View view) {
+
+            AlertDialog alertDialog = new AlertDialog.Builder(MainActivity.this).create();
+            alertDialog.setTitle("Histogram Details");
+            alertDialog.setMessage("Total Sum : " + sum + "\n"  + "Sum of all Compartments : " + sum_of_all + "\n" + "Average value of all Compartmemts : " + average );
+            alertDialog.setButton(AlertDialog.BUTTON_NEUTRAL, "OK",
+                    new DialogInterface.OnClickListener() {
+                        public void onClick(DialogInterface dialog, int which) {
+                            dialog.dismiss();
+                        }
+                    });
+            alertDialog.show();
+
+    }
 }
